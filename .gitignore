@@ -1,11 +1,14 @@
 build/*
+!build/.gitkeep
 *.o
 *.so
 *.a
 data/*
+!data/.gitkeep
 *.pyc
 __pycache__
 venv/
 .vscode/
 .idea/
 .DS_Store
+changelog.md
