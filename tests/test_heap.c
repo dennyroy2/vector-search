@@ -6,7 +6,7 @@
 // --- Case 1: pop order is descending by distance ----------------------
 // The core property of a max-heap. This one test catches most sift bugs.
 static void test_pop_order(void) {
-    MaxHeap *h = heap_create(20);
+    MaxHeap *h = heap_create(20, 1);
     assert(h != NULL);
 
     float dists[] = {5.0f, 1.0f, 9.0f, 3.0f, 7.0f, 2.0f, 8.0f, 4.0f, 6.0f};
@@ -42,7 +42,7 @@ static void test_insertion_orders(void) {
     float *orders[] = {ascending, descending, shuffled};
 
     for (int o = 0; o < 3; o++) {
-        MaxHeap *h = heap_create(n);
+        MaxHeap *h = heap_create(n, 1);
         for (int i = 0; i < n; i++) heap_push(h, i, orders[o][i]);
 
         // Whatever went in, 8.0 comes out first and 1.0 last.
@@ -60,7 +60,7 @@ static void test_insertion_orders(void) {
 // A swap that moves .dist but not .id passes every ordering test above
 // and is completely broken. The ids ARE the search result.
 static void test_id_pairing(void) {
-    MaxHeap *h = heap_create(10);
+    MaxHeap *h = heap_create(10, 1);
 
     // Deliberately make id and dist unrelated, so a mixup is visible.
     // id 100 -> dist 3.0, id 200 -> dist 1.0, etc.
@@ -87,7 +87,7 @@ static void test_id_pairing(void) {
 
 // --- Case 4: peek agrees with the next pop ----------------------------
 static void test_peek(void) {
-    MaxHeap *h = heap_create(10);
+    MaxHeap *h = heap_create(10, 1);
     float dists[] = {2.0f, 9.0f, 4.0f, 1.0f, 7.0f};
     for (int i = 0; i < 5; i++) heap_push(h, i, dists[i]);
 
@@ -109,7 +109,7 @@ static void test_peek(void) {
 
 // --- Case 5: empty heap -----------------------------------------------
 static void test_empty(void) {
-    MaxHeap *h = heap_create(5);
+    MaxHeap *h = heap_create(5, 1);
     Candidate c;
 
     assert(heap_size(h) == 0);
@@ -128,7 +128,7 @@ static void test_empty(void) {
 // --- Case 6: full heap ------------------------------------------------
 static void test_full(void) {
     int cap = 4;
-    MaxHeap *h = heap_create(cap);
+    MaxHeap *h = heap_create(cap, 1);
 
     for (int i = 0; i < cap; i++) assert(heap_push(h, i, (float)i) == 1);
     assert(heap_size(h) == cap);
@@ -148,7 +148,7 @@ static void test_full(void) {
 
 // --- Case 7: single element -------------------------------------------
 static void test_single(void) {
-    MaxHeap *h = heap_create(5);
+    MaxHeap *h = heap_create(5, 1);
     Candidate c;
 
     heap_push(h, 42, 3.14f);
@@ -166,7 +166,7 @@ static void test_single(void) {
 // elements forces real multi-level sift paths in both directions.
 static void test_deep(void) {
     int n = 100;
-    MaxHeap *h = heap_create(n);
+    MaxHeap *h = heap_create(n, 1);
 
     srand(12345);                     // fixed seed: failures reproduce
     for (int i = 0; i < n; i++) {
@@ -191,7 +191,7 @@ static void test_deep(void) {
 // SMALLEST distances by evicting the largest whenever a better one shows up.
 static void test_topk_pattern(void) {
     int k = 3;
-    MaxHeap *h = heap_create(k);
+    MaxHeap *h = heap_create(k, 1);
 
     float stream[] = {50.0f, 10.0f, 80.0f, 30.0f, 5.0f, 90.0f, 20.0f};
     int n = 7;

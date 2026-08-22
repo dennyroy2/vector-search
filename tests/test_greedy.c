@@ -101,7 +101,7 @@ static void test_fully_connected(void) {
 
     // Query at 48 — nearest is node 5 (at 44), distance 16.
     float q2[] = {48.0f};
-    found = graph_greedy_search(g, vs, q2, 0, v, &dist, &ndists, out_hops);
+    found = graph_greedy_search(g, vs, q2, 0, v, &dist, &ndists, &out_hops);
     assert(found == 1);
     assert(dist == 4.0f);
 

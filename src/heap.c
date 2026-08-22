@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include "heap.h"
 
-MaxHeap * heap_create(int capacity) {
+MaxHeap * heap_create(int capacity, int is_max) {
 
     MaxHeap * heap = malloc(sizeof(MaxHeap));
     if (heap == NULL) return NULL;
@@ -14,6 +14,7 @@ MaxHeap * heap_create(int capacity) {
     }
     heap->size = 0;
     heap->capacity = capacity;
+    heap->is_max = is_max;
 
     return heap;
 }
@@ -31,9 +32,14 @@ static void swap(Candidate * a, Candidate * b) {
 }
 
 static void sift_up(MaxHeap * h, int i) {
+    int max = h->is_max;
     while(i > 0) {
         int parent = (i-1)/2;
-        if (h->items[i].dist <= h->items[parent].dist) break;
+        if (max) {
+            if (h->items[i].dist <= h->items[parent].dist) break;
+        } else {
+            if (h->items[i].dist >= h->items[parent].dist) break;
+        }
 
         swap(&h->items[i], &h->items[parent]);
         i = parent;
@@ -41,6 +47,7 @@ static void sift_up(MaxHeap * h, int i) {
 }
 
 static void sift_down(MaxHeap *h, int i) {
+    int max = h->is_max;
     while (1) {
         int left  = 2*i + 1;
         int right = 2*i + 2;
@@ -48,8 +55,13 @@ static void sift_down(MaxHeap *h, int i) {
 
         // Find the SMALLEST of {self, left, right}.
         // The bounds checks matter — a node may have 0, 1, or 2 children.
-        if (left  < h->size && h->items[left].dist  > h->items[best].dist) best = left;
-        if (right < h->size && h->items[right].dist > h->items[best].dist) best = right;
+        if (max) {
+            if (left  < h->size && h->items[left].dist  > h->items[best].dist) best = left;
+            if (right < h->size && h->items[right].dist > h->items[best].dist) best = right;
+        } else {
+            if (left  < h->size && h->items[left].dist  < h->items[best].dist) best = left;
+            if (right < h->size && h->items[right].dist < h->items[best].dist) best = right;
+        }
 
         if (best == i) break;             // already in the right place
 

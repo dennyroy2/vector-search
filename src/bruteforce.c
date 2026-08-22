@@ -31,7 +31,7 @@ void bruteforce_nn(const VectorStore *vs, const float *query,int *out_id, float 
 int bruteforce_topk(const VectorStore * vs, const float * query, int k, int * out_ids, float * out_dists) {
     if ((k <= 0) || (vs->n <= 0)) return 0;
 
-    MaxHeap * maxHeap = heap_create(k);
+    MaxHeap * maxHeap = heap_create(k, 1);
     if (maxHeap == NULL) return 0;
     Candidate out;
     for (int i = 0; i < vs->n; i++) {

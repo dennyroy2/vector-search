@@ -9,9 +9,10 @@ typedef struct {
     Candidate * items;
     int size;
     int capacity;
+    int is_max;
 } MaxHeap;
 
-MaxHeap *heap_create(int capacity);
+MaxHeap *heap_create(int capacity, int is_max);
 void heap_free(MaxHeap *h);
 
 // Returns 1 on success, 0 if full.
