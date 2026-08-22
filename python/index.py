@@ -105,6 +105,76 @@ class BruteForceIndex:
     def __del__(self):
         self.close()
 
+# C: Graph *graph_create(int n, int M);
+lib.graph_create.argtypes = [ctypes.c_int, ctypes.c_int]
+lib.graph_create.restype = ctypes.c_void_p
+
+lib.graph_free.argtypes = [ctypes.c_void_p]
+lib.graph_free.restype = None
+
+# C: int graph_fill_random(Graph *g, int seed);
+lib.graph_fill_random.argtypes = [ctypes.c_void_p, ctypes.c_int]
+lib.graph_fill_random.restype = ctypes.c_int
+
+lib.visited_create.argtypes = [ctypes.c_int]
+lib.visited_create.restype = ctypes.c_void_p
+
+lib.visited_free.argtypes = [ctypes.c_void_p]
+lib.visited_free.restype = None
+
+# C: int graph_greedy_search(const Graph *g, const VectorStore *vs,
+#                            const float *query, int entry,
+#                            VisitedSet *visited, float *out_dist,
+#                            int *out_ndists);
+lib.graph_greedy_search.argtypes = [
+    ctypes.c_void_p, ctypes.c_void_p, FLOAT_VEC, ctypes.c_int,
+    ctypes.c_void_p,
+    ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_int, ),ctypes.POINTER(ctypes.c_int)
+]
+lib.graph_greedy_search.restype = ctypes.c_int
+
+lib.graph_get_neighbours_copy.argtypes = [ctypes.c_void_p, ctypes.c_int, INT_VEC]
+lib.graph_get_neighbours_copy.restype = ctypes.c_int
+
+class RandomGraphIndex:
+    """Greedy search over a randomly-connected graph. The control."""
+
+    def __init__(self, vectors, M=16, seed=42):
+        self._vectors = vectors          # keep alive — C borrows the pointer
+        self.n, self.dim = vectors.shape
+        self.M = M
+
+        self._vs = lib.vs_create(vectors, self.n, self.dim)
+        self._g = lib.graph_create(self.n, M)
+        self._v = lib.visited_create(self.n)
+
+        if not lib.graph_fill_random(self._g, seed):
+            raise ValueError(f"cannot build random graph with M={M}, n={self.n}")
+
+    def search_1(self, query, entry=0):
+        """Returns (id, squared_distance, n_distance_computations)."""
+        out_dist = ctypes.c_float()
+        out_ndists = ctypes.c_int()
+        out_hops = ctypes.c_int()
+        found = lib.graph_greedy_search(
+            self._g, self._vs, query, entry, self._v,
+            ctypes.byref(out_dist), ctypes.byref(out_ndists), ctypes.byref(out_hops)
+        )
+        return found, out_dist.value, out_ndists.value, out_hops.value
+
+    def neighbours(self, node):
+        out = np.empty(self.M, dtype=np.int32)
+        count = lib.graph_get_neighbours_copy(self._g, node, out)
+        return out[:count]
+
+    def close(self):
+        if self._v: lib.visited_free(self._v); self._v = None
+        if self._g: lib.graph_free(self._g); self._g = None
+        if self._vs: lib.vs_free(self._vs); self._vs = None
+
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close()
+    def __del__(self): self.close()
 
 def main():
     base, queries, gt = load_siftsmall()
