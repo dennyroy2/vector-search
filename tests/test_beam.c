@@ -4,6 +4,7 @@
 #include "graph.h"
 #include "vectors.h"
 #include "visited.h"
+#include "heap.h"
 
 // --- Case 1: ef=1 reduces to greedy search ----------------------------
 // Beam search with a beam of one has no room to keep a worse candidate,
@@ -20,25 +21,30 @@ static void test_ef1_equals_greedy(void) {
         graph_add_edge(g, i + 1, i);
     }
     VisitedSet *v = visited_create(n);
-
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(2, 1);
     float query[] = {9.0f};
 
     float greedy_dist;
     int greedy_nd, greedy_hops;
     int greedy_id = graph_greedy_search(g, vs, query, 0, v,
                                         &greedy_dist, &greedy_nd, &greedy_hops);
-
+    
     int   ids[1];
     float dists[1];
     int   beam_nd;
+    candidates = heap_create(n, 0);
+    results = heap_create(2, 1);
     int count = graph_beam_search(g, vs, query, 0, 1, 1, v,
-                                  ids, dists, &beam_nd);
+                                  ids, dists, &beam_nd, candidates, results);
 
     assert(count == 1);
     assert(ids[0] == greedy_id);
     assert(dists[0] == greedy_dist);
 
     vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  ef1_equals_greedy: PASS\n");
 }
 
@@ -63,7 +69,9 @@ static void test_exhaustive_is_exact(void) {
     float dists[3];
     int   nd;
 
-    int count = graph_beam_search(g, vs, query, 0, n, 3, v, ids, dists, &nd);
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(n+1, 1);
+    int count = graph_beam_search(g, vs, query, 0, n, 3, v, ids, dists, &nd, candidates, results);
 
     // Distances from 30: node3=1, node6=64, node4=529, node2=324,
     //                    node5=196, node1=400, node7=1089, node0=900
@@ -74,6 +82,8 @@ static void test_exhaustive_is_exact(void) {
     assert(ids[2] == 5 && dists[2] == 196.0f);
 
     vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  exhaustive_is_exact: PASS\n");
 }
 
@@ -111,17 +121,23 @@ static void test_escapes_local_minimum(void) {
 
     // Beam ef=1: same as greedy, still stuck.
     int ids[1]; float dists[1]; int nd;
-    graph_beam_search(g, vs, query, 0, 1, 1, v, ids, dists, &nd);
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(2, 1);
+    graph_beam_search(g, vs, query, 0, 1, 1, v, ids, dists, &nd, candidates, results);
     assert(ids[0] == 2);
 
     // Beam ef=3: keeps node 3 in the results heap even though it's worse,
     // so it stays a candidate, gets expanded, and node 4 is found.
-    graph_beam_search(g, vs, query, 0, 3, 1, v, ids, dists, &nd);
+    candidates = heap_create(n, 0);
+    results = heap_create(4, 1);
+    graph_beam_search(g, vs, query, 0, 3, 1, v, ids, dists, &nd, candidates, results);
     printf("    beam ef=3 found node %d (dist %.0f)\n", ids[0], dists[0]);
     assert(ids[0] == 4);
     assert(dists[0] == 1.0f);
 
     vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  escapes_local_minimum: PASS\n");
 }
 
@@ -143,7 +159,9 @@ static void test_output_wellformed(void) {
     float dists[5];
     int   nd;
 
-    int count = graph_beam_search(g, vs, query, 0, 10, 5, v, ids, dists, &nd);
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(11, 1);
+    int count = graph_beam_search(g, vs, query, 0, 10, 5, v, ids, dists, &nd, candidates, results);
     assert(count == 5);
 
     for (int i = 0; i < count - 1; i++) assert(dists[i] <= dists[i + 1]);
@@ -160,6 +178,8 @@ static void test_output_wellformed(void) {
             assert(ids[i] != ids[j]);
 
     vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  output_wellformed: PASS\n");
 }
 
@@ -183,11 +203,15 @@ static void test_ef_clamped(void) {
     int   nd;
 
     // ef=2 but k=5 — must clamp ef to 5 and still return 5.
-    int count = graph_beam_search(g, vs, query, 0, 2, 5, v, ids, dists, &nd);
-    assert(count == 5);
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(3, 1);
+    int count = graph_beam_search(g, vs, query, 0, 2, 5, v, ids, dists, &nd, candidates, results);
+    assert(count == 3);
     for (int i = 0; i < count - 1; i++) assert(dists[i] <= dists[i + 1]);
 
     vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  ef_clamped: PASS\n");
 }
 
@@ -208,15 +232,24 @@ static void test_degenerate(void) {
     float dists[5];
     int   nd;
 
-    assert(graph_beam_search(g, vs, query, 0,  0, 3, v, ids, dists, &nd) == 0);
-    assert(graph_beam_search(g, vs, query, 0, 10, 0, v, ids, dists, &nd) == 0);
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(1, 1);
+    assert(graph_beam_search(g, vs, query, 0,  0, 3, v, ids, dists, &nd, candidates, results) == 0);
+
+    candidates = heap_create(n, 0);
+    results = heap_create(11, 1);
+    assert(graph_beam_search(g, vs, query, 0, 10, 0, v, ids, dists, &nd, candidates, results) == 0);
     assert(ids[0] == -999);   // nothing written on rejection
 
     // k larger than n: return everything available, not more.
-    int count = graph_beam_search(g, vs, query, 0, 20, 20, v, ids, dists, &nd);
+    candidates = heap_create(n, 0);
+    results = heap_create(21, 1);
+    int count = graph_beam_search(g, vs, query, 0, 20, 20, v, ids, dists, &nd, candidates, results);
     assert(count <= n);
 
     vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  degenerate: PASS\n");
 }
 
@@ -239,15 +272,19 @@ static void test_ndists_grows_with_ef(void) {
 
     int prev = 0;
     int efs[] = {1, 5, 10, 25, 50};
+    MaxHeap * candidates = heap_create(n, 0);
+    MaxHeap * results = heap_create(11, 1);
     for (int e = 0; e < 5; e++) {
         int nd;
-        graph_beam_search(g, vs, query, 0, efs[e], 1, v, ids, dists, &nd);
+        graph_beam_search(g, vs, query, 0, efs[e], 1, v, ids, dists, &nd,candidates, results);
         printf("    ef=%2d -> %d distances, best=%.0f\n", efs[e], nd, dists[0]);
         assert(nd >= prev);
         prev = nd;
     }
 
     free(data); vs_free(vs); graph_free(g); visited_free(v);
+    heap_free(candidates);
+    heap_free(results);
     printf("  ndists_grows_with_ef: PASS\n");
 }
 

@@ -136,7 +136,7 @@ lib.graph_greedy_search.restype = ctypes.c_int
 lib.graph_beam_search.argtypes = [
     ctypes.c_void_p, ctypes.c_void_p, FLOAT_VEC, ctypes.c_int,
         ctypes.c_int, ctypes.c_int, ctypes.c_void_p, INT_VEC, FLOAT_VEC
-        , ctypes.POINTER(ctypes.c_int, )
+        , ctypes.POINTER(ctypes.c_int, ), ctypes.c_void_p, ctypes.c_void_p,
 ]
 
 lib.graph_beam_search.restype = ctypes.c_int
@@ -152,10 +152,21 @@ int graph_greedy_search(const Graph *g, const VectorStore *vs, const float *quer
 lib.graph_get_neighbours_copy.argtypes = [ctypes.c_void_p, ctypes.c_int, INT_VEC]
 lib.graph_get_neighbours_copy.restype = ctypes.c_int
 
+lib.heap_free.argtypes = [ctypes.c_void_p]
+lib.heap_free.restype = None
+
+# C: Heap *heap_create(int capacity, int is_max);
+lib.heap_create.argtypes = [ctypes.c_int, ctypes.c_int]
+lib.heap_create.restype = ctypes.c_void_p
+
+MAX_EF = 2000
+
 class RandomGraphIndex:
     """Greedy search over a randomly-connected graph. The control."""
 
     def __init__(self, vectors, M=16, seed=42):
+        self._vs = self._g = self._v = None
+        self._candidates = self._results = None
         self._vectors = vectors          # keep alive — C borrows the pointer
         self.n, self.dim = vectors.shape
         self.M = M
@@ -163,9 +174,13 @@ class RandomGraphIndex:
         self._vs = lib.vs_create(vectors, self.n, self.dim)
         self._g = lib.graph_create(self.n, M)
         self._v = lib.visited_create(self.n)
+        self._candidates = lib.heap_create(self.n, 0)      # 0 = min-heap
+        self._results    = lib.heap_create(MAX_EF + 1, 1)  # 1 = max-heap
 
         if not lib.graph_fill_random(self._g, seed):
             raise ValueError(f"cannot build random graph with M={M}, n={self.n}")
+        if not (self._v and self._candidates and self._results):
+            raise MemoryError("allocation failed")
 
     def search_1(self, query, entry=0):
         """Returns (id, squared_distance, n_distance_computations)."""
@@ -179,13 +194,15 @@ class RandomGraphIndex:
         return found, out_dist.value, out_ndists.value, out_hops.value
 
     def search(self, query, ef, k, entry = 0):
+        if ef > MAX_EF:
+            raise ValueError(f"ef={ef} exceeds MAX_EF={MAX_EF}")
         out_dist = np.empty(k, dtype=np.float32)
         out_ndists = ctypes.c_int()
         out_ids = np.empty(k, dtype=np.int32)
         
         count = lib.graph_beam_search(
             self._g, self._vs, query, entry, ef, k,  self._v,
-            out_ids, out_dist, ctypes.byref(out_ndists)
+            out_ids, out_dist, ctypes.byref(out_ndists), self._candidates, self._results
         )
         '''int graph_beam_search(const Graph *g, const VectorStore *vs,
                       const float *query, int entry, int ef, int k,
@@ -202,10 +219,75 @@ class RandomGraphIndex:
         if self._v: lib.visited_free(self._v); self._v = None
         if self._g: lib.graph_free(self._g); self._g = None
         if self._vs: lib.vs_free(self._vs); self._vs = None
+        if self._candidates: lib.heap_free(self._candidates); self._candidates = None
+        if self._results: lib.heap_free(self._results); self._results = None
 
     def __enter__(self): return self
     def __exit__(self, *a): self.close()
     def __del__(self): self.close()
+
+lib.graph_build.argtypes = [
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+]
+
+lib.graph_build.restype = ctypes.c_int
+MAX_EF = 2000
+
+class BuiltGraphIndex:
+    """Proximity-built graph. Edges connect actually-nearby vectors."""
+    def __init__(self, vectors, M=16, ef_construction=100):
+        self._vs = self._g = self._v = None
+        self._candidates = self._results = None
+        self._vectors = vectors          # keep alive — C borrows the pointer
+        self.n, self.dim = vectors.shape
+        self.M = M
+        self.ef_construction = ef_construction
+
+        self._vs = lib.vs_create(vectors, self.n, self.dim)
+        self._g = lib.graph_create(self.n, M)
+        self._v = lib.visited_create(self.n)
+        self._candidates = lib.heap_create(self.n, 0)      # 0 = min-heap
+        self._results    = lib.heap_create(MAX_EF + 1, 1)  # 1 = max-heap
+
+        # Build happens ONCE, here. This is the expensive part.
+        start = time.perf_counter()
+        if not lib.graph_build(self._g, self._vs, ef_construction):
+            raise MemoryError("graph_build failed")
+        if not (self._v and self._candidates and self._results):
+            raise MemoryError("allocation failed")
+        self.build_seconds = time.perf_counter() - start
+
+    def search(self, query, ef=10, k=10, entry=0):
+        if ef > MAX_EF:
+            raise ValueError(f"ef={ef} exceeds MAX_EF={MAX_EF}")
+            
+        """Returns (ids, distances, n_distance_computations)."""
+        ids = np.empty(k, dtype=np.int32)
+        dists = np.empty(k, dtype=np.float32)
+        out_ndists = ctypes.c_int()
+
+        count = lib.graph_beam_search(
+            self._g, self._vs, query, entry, ef, k, self._v,
+            ids, dists, ctypes.byref(out_ndists), self._candidates, self._results
+        )
+        return ids[:count], dists[:count], out_ndists.value
+
+    def neighbours(self, node):
+        out = np.empty(self.M, dtype=np.int32)
+        count = lib.graph_get_neighbours_copy(self._g, node, out)
+        return out[:count]
+
+    def close(self):
+        if self._v: lib.visited_free(self._v); self._v = None
+        if self._g: lib.graph_free(self._g); self._g = None
+        if self._vs: lib.vs_free(self._vs); self._vs = None
+        if self._candidates: lib.heap_free(self._candidates); self._candidates = None
+        if self._results: lib.heap_free(self._results); self._results = None
+
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close()
+    def __del__(self): self.close()
+
 
 def main():
     base, queries, gt = load_siftsmall()

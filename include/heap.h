@@ -26,4 +26,6 @@ int heap_peek(const MaxHeap *h, Candidate *out);
 
 int heap_size(const MaxHeap *h);
 
+void heap_reset(MaxHeap * h);
+
 #endif

@@ -4,6 +4,7 @@
 #include "visited.h"
 #include "distance.h"
 #include "heap.h"
+#include <stdio.h>
 
 Graph *graph_create(int n, int M) {
     Graph * graph = malloc(sizeof(Graph));
@@ -132,15 +133,20 @@ int graph_get_neighbours_copy(const Graph *g, int node, int *out) {
 int graph_beam_search(const Graph *g, const VectorStore *vs,
                       const float *query, int entry, int ef, int k,
                       VisitedSet *visited,
-                      int *out_ids, float *out_dists, int *out_ndists) {
+                      int *out_ids, float *out_dists, int *out_ndists,
+                    MaxHeap * candidates, MaxHeap * results) {
+
+    if (results->capacity < ef + 1) return 0;
+    if (candidates->capacity < g->n) return 0;
+    if (candidates->is_max || !results->is_max) return 0;
 
     if ((ef <= 0) || (k <= 0)) return 0;
 
     if (ef < k) { ef = k;}
 
-    MaxHeap * candidates = heap_create(g->n, 0);
-    MaxHeap * results = heap_create(ef+1, 1);
-    if ((candidates == NULL) || (results == NULL)) return 0;
+    heap_reset(candidates);
+    heap_reset(results);
+    
 
     visited_reset(visited);
     visited_mark(visited, entry);
@@ -191,7 +197,66 @@ int graph_beam_search(const Graph *g, const VectorStore *vs,
     }
 
     *out_ndists = dist_counter;
+    return n_out;
+}
+
+int graph_replace_edge(Graph * g, int node, int slot, int new_neighbour) {
+    if (slot < g->degrees[node] && slot >= 0) {
+        g->neighbours[node * g->M + slot] = new_neighbour;
+        return 1;
+    }
+    return 0;
+}
+
+int graph_build(Graph *g, const VectorStore *vs, int ef_construction) {
+    // TODO: create a VisitedSet sized for the whole graph, once, outside
+    //       the loop. Creating one per insertion would be n allocations.
+    VisitedSet * v = visited_create(g->n);
+    MaxHeap * candidates = heap_create(g->n, 0);
+    MaxHeap * results = heap_create(ef_construction+1, 1);
+    // TODO: allocate the search output buffers once, outside the loop,
+    //       for the same reason.
+    int   *found_ids  = malloc(g->M * sizeof(int));
+    float *fdists = malloc(g->M * sizeof(float));
+    int out_ndists;
+
+    for (int i = 1; i < vs->n; i++) {
+        
+        int n = graph_beam_search(g, vs, vs_get(vs, i), 0, ef_construction, g->M, v, found_ids, fdists, &out_ndists, candidates, results);
+        
+        for (int j = 0; j < n; j++) {
+            int c = found_ids[j];
+            graph_add_edge(g, i, c);
+
+            if (!graph_add_edge(g, c, i)) {
+                int count;
+                const int *neighbours = graph_neighbours(g, c, &count);
+                const float * vec = vs_get(vs, c);
+
+                int worst_slot = -1;
+                float worst_dist = -1.0f;
+                for (int k = 0; k < count; k++) {
+                    float current_dist = l2sq_distance(vs_get(vs, neighbours[k]), vec, vs->dim);
+                    if (current_dist > worst_dist) {
+                        worst_dist = current_dist;
+                        worst_slot = k;
+                    }
+                }
+
+                if (worst_dist > fdists[j]) {
+                    graph_replace_edge(g, c, worst_slot, i);
+                }
+                
+            }
+        }
+    }
+
+    free(fdists);
+    free(found_ids);
+    visited_free(v);
     heap_free(candidates);
     heap_free(results);
-    return n_out;
+
+    return 1;
+    
 }

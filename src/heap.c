@@ -99,3 +99,7 @@ int heap_peek(const MaxHeap * h, Candidate * out) {
 int heap_size(const MaxHeap *h) {
     return h->size;
 }
+
+void heap_reset(MaxHeap * h) {
+    h->size = 0;
+}

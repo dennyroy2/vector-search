@@ -3,6 +3,7 @@
 
 #include "vectors.h"
 #include "visited.h"
+#include "heap.h"
 
 typedef struct {
     int * neighbours; // n * M ints
@@ -54,6 +55,21 @@ int graph_get_neighbours_copy(const Graph *g, int node, int *out);
 int graph_beam_search(const Graph *g, const VectorStore *vs,
                       const float *query, int entry, int ef, int k,
                       VisitedSet *visited,
-                      int *out_ids, float *out_dists, int *out_ndists);
+                      int *out_ids, float *out_dists, int *out_ndists,
+                    MaxHeap * candidates, MaxHeap * results);
+
+// Overwrite a specific neighbour slot. No degree change.
+int graph_replace_edge(Graph *g, int node, int slot, int new_neighbour);
+
+// graph.h
+
+// Build a graph by inserting every vector one at a time, connecting each
+// to its M nearest already-inserted neighbours.
+//
+// ef_construction : beam width during insertion. Higher = better graph,
+//                   slower build. Paid once, unlike efSearch.
+//
+// Returns 1 on success, 0 on allocation failure.
+int graph_build(Graph *g, const VectorStore *vs, int ef_construction);
 
 #endif
