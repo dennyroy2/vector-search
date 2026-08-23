@@ -43,4 +43,17 @@ int graph_greedy_search(const Graph *g, const VectorStore *vs, const float *quer
 // Returns the number written. Lets Python inspect the graph.
 int graph_get_neighbours_copy(const Graph *g, int node, int *out);
 
+// Beam search: explores the graph keeping the `ef` best candidates found.
+//
+// ef        : beam width. Must be >= k. Larger explores more: higher
+//             recall, lower throughput. This is THE tuning knob.
+// out_ids   : caller-allocated, >= k ints
+// out_dists : caller-allocated, >= k floats
+//
+// Returns the number written, ascending by distance.
+int graph_beam_search(const Graph *g, const VectorStore *vs,
+                      const float *query, int entry, int ef, int k,
+                      VisitedSet *visited,
+                      int *out_ids, float *out_dists, int *out_ndists);
+
 #endif

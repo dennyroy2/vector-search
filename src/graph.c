@@ -3,6 +3,7 @@
 #include "vectors.h"
 #include "visited.h"
 #include "distance.h"
+#include "heap.h"
 
 Graph *graph_create(int n, int M) {
     Graph * graph = malloc(sizeof(Graph));
@@ -126,4 +127,71 @@ int graph_get_neighbours_copy(const Graph *g, int node, int *out) {
     const int *nbrs = graph_neighbours(g, node, &count);
     for (int j = 0; j < count; j++) out[j] = nbrs[j];
     return count;
+}
+
+int graph_beam_search(const Graph *g, const VectorStore *vs,
+                      const float *query, int entry, int ef, int k,
+                      VisitedSet *visited,
+                      int *out_ids, float *out_dists, int *out_ndists) {
+
+    if ((ef <= 0) || (k <= 0)) return 0;
+
+    if (ef < k) { ef = k;}
+
+    MaxHeap * candidates = heap_create(g->n, 0);
+    MaxHeap * results = heap_create(ef+1, 1);
+    if ((candidates == NULL) || (results == NULL)) return 0;
+
+    visited_reset(visited);
+    visited_mark(visited, entry);
+    int dist_counter = 1;
+
+    float dist = l2sq_distance(vs_get(vs, entry), query, vs->dim);
+    heap_push(candidates, entry, dist);
+    heap_push(results, entry, dist);
+
+
+    while (heap_size(candidates) > 0) {
+        Candidate c, worst;
+        heap_pop(candidates, &c);
+        heap_peek(results, &worst);
+
+        if (heap_size(results) >= ef && c.dist > worst.dist) break;
+
+        int out_count;
+        const int * ptr = graph_neighbours(g, c.id, &out_count);
+
+        for (int i = 0; i < out_count; i++) {
+            if (visited_check(visited, ptr[i]) == 1) continue;
+            dist_counter++;
+
+            visited_mark(visited, ptr[i]);
+            float current_dist = l2sq_distance(vs_get(vs, ptr[i]), query, vs->dim);
+            heap_peek(results, &worst);
+
+            if (heap_size(results) < ef || worst.dist > current_dist) {
+                heap_push(candidates, ptr[i], current_dist);
+                heap_push(results, ptr[i], current_dist);
+
+                Candidate throw;
+                if (heap_size(results) > ef) {heap_pop(results, &throw);}
+            }
+        }
+    }
+
+    Candidate out;
+    int count = heap_size(results);
+    int n_out = count < k ? count : k;
+    for (int i = count - 1 ; i >= 0; i--) {
+        heap_pop(results, &out);
+        if (i < n_out) {
+            out_ids[i] = out.id;
+            out_dists[i] = out.dist;
+        }
+    }
+
+    *out_ndists = dist_counter;
+    heap_free(candidates);
+    heap_free(results);
+    return n_out;
 }

@@ -158,6 +158,23 @@ def trace_one_query(base, queries, gt, qi=0, M=16, seed=4):
         print(f"  ratio:  {current_dist/true_dist:.2f}x worse than optimal")
         print(f"  visited {len(visited)} nodes of {len(base)}")
 
+def sweep_ef(base, queries, gt, M=16, seed=4, k=10):
+    efs = [10, 20, 50, 100, 200, 500, 1000]
+    print(f"beam search on random graph (M={M}, k={k})")
+    print(f"{'ef':>5} {'recall@10':>10} {'ndists':>8} {'% scanned':>10}")
+
+    with RandomGraphIndex(base, M=M, seed=seed) as idx:
+        for ef in efs:
+            total_recall = 0
+            total_nd = 0
+            for i, q in enumerate(queries):
+                ids, dists, nd = idx.search(q, ef=ef, k=k)
+                total_recall += len(set(ids) & set(gt[i][:k])) / k
+                total_nd += nd
+            r = total_recall / len(queries)
+            nd = total_nd / len(queries)
+            print(f"{ef:>5} {r:>10.3f} {nd:>8.0f} {nd/len(base)*100:>9.2f}%")
+
 def main():
     base, queries, gt = load_siftsmall()
     print(f"dataset: {base.shape[0]} vectors, {base.shape[1]} dims, "
@@ -194,6 +211,8 @@ def main():
 
     analyse_greedy(base, queries, gt)
     trace_one_query(base, queries, gt, qi=0)
+
+    sweep_ef(base, queries, gt)
 
 
 if __name__ == "__main__":

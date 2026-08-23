@@ -133,6 +133,22 @@ lib.graph_greedy_search.argtypes = [
 ]
 lib.graph_greedy_search.restype = ctypes.c_int
 
+lib.graph_beam_search.argtypes = [
+    ctypes.c_void_p, ctypes.c_void_p, FLOAT_VEC, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, ctypes.c_void_p, INT_VEC, FLOAT_VEC
+        , ctypes.POINTER(ctypes.c_int, )
+]
+
+lib.graph_beam_search.restype = ctypes.c_int
+'''
+int graph_beam_search(const Graph *g, const VectorStore *vs,
+                      const float *query, int entry, int ef, int k,
+                      VisitedSet *visited,
+                      int *out_ids, float *out_dists, int *out_ndists)
+int graph_greedy_search(const Graph *g, const VectorStore *vs, const float *query, int entry, VisitedSet *visited, 
+                        float *out_dist, int *out_ndists, int * out_hops)
+                      '''
+
 lib.graph_get_neighbours_copy.argtypes = [ctypes.c_void_p, ctypes.c_int, INT_VEC]
 lib.graph_get_neighbours_copy.restype = ctypes.c_int
 
@@ -161,6 +177,21 @@ class RandomGraphIndex:
             ctypes.byref(out_dist), ctypes.byref(out_ndists), ctypes.byref(out_hops)
         )
         return found, out_dist.value, out_ndists.value, out_hops.value
+
+    def search(self, query, ef, k, entry = 0):
+        out_dist = np.empty(k, dtype=np.float32)
+        out_ndists = ctypes.c_int()
+        out_ids = np.empty(k, dtype=np.int32)
+        
+        count = lib.graph_beam_search(
+            self._g, self._vs, query, entry, ef, k,  self._v,
+            out_ids, out_dist, ctypes.byref(out_ndists)
+        )
+        '''int graph_beam_search(const Graph *g, const VectorStore *vs,
+                      const float *query, int entry, int ef, int k,
+                      VisitedSet *visited,
+                      int *out_ids, float *out_dists, int *out_ndists)'''
+        return out_ids[:count], out_dist[:count], out_ndists.value 
 
     def neighbours(self, node):
         out = np.empty(self.M, dtype=np.int32)
