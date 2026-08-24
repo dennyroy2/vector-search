@@ -44,6 +44,10 @@ int graph_greedy_search(const Graph *g, const VectorStore *vs, const float *quer
 // Returns the number written. Lets Python inspect the graph.
 int graph_get_neighbours_copy(const Graph *g, int node, int *out);
 
+int graph_select_neighbours(const VectorStore *vs, int node,
+                            const int *candidates, const float *cdists,
+                            int n_cand, int M, int *out);
+
 // Beam search: explores the graph keeping the `ef` best candidates found.
 //
 // ef        : beam width. Must be >= k. Larger explores more: higher

@@ -12,3 +12,4 @@ venv/
 .idea/
 .DS_Store
 changelog.md
+decisions.md

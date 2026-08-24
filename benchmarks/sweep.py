@@ -92,7 +92,7 @@ def main():
         rows += sweep(idx, queries, gt, efs, label="random-M16")
 
     print("\nbuilt graph, M=16, efConstruction=100")
-    with BuiltGraphIndex(base, M=16, ef_construction=100) as idx:
+    with BuiltGraphIndex(base, M=16, ef_construction=200) as idx:
         print(f"  build took {idx.build_seconds:.1f}s")
         rows += sweep(idx, queries, gt, efs, label="built-M16")
 

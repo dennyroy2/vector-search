@@ -208,24 +208,46 @@ int graph_replace_edge(Graph * g, int node, int slot, int new_neighbour) {
     return 0;
 }
 
+int graph_select_neighbours(const VectorStore *vs, int node,
+                            const int *candidates, const float *cdists,
+                            int n_cand, int M, int *out) {
+    (void)node;
+    int n_picked = 0;
+    for (int i = 0; i < n_cand && n_picked < M; i++) {
+        int c = candidates[i];
+        const float * c_vec = vs_get(vs, c);
+
+        int redundant = 0;
+        for (int j = 0; j < n_picked; j++) {
+            float d = l2sq_distance(vs_get(vs, out[j]), c_vec, vs->dim);
+            if (d < cdists[i])  {redundant = 1; break;}
+        }
+
+        if (!redundant) {
+            out[n_picked++] = c;
+        }
+    }
+
+    return n_picked;
+                            }
+
 int graph_build(Graph *g, const VectorStore *vs, int ef_construction) {
-    // TODO: create a VisitedSet sized for the whole graph, once, outside
-    //       the loop. Creating one per insertion would be n allocations.
     VisitedSet * v = visited_create(g->n);
     MaxHeap * candidates = heap_create(g->n, 0);
     MaxHeap * results = heap_create(ef_construction+1, 1);
-    // TODO: allocate the search output buffers once, outside the loop,
-    //       for the same reason.
-    int   *found_ids  = malloc(g->M * sizeof(int));
-    float *fdists = malloc(g->M * sizeof(float));
-    int out_ndists;
 
+    int *found_ids  = malloc(ef_construction * sizeof(int));
+    float *fdists = malloc(ef_construction * sizeof(float));
+    int out_ndists;
+    int * out = malloc(g->M * sizeof(int));
     for (int i = 1; i < vs->n; i++) {
         
-        int n = graph_beam_search(g, vs, vs_get(vs, i), 0, ef_construction, g->M, v, found_ids, fdists, &out_ndists, candidates, results);
-        
-        for (int j = 0; j < n; j++) {
-            int c = found_ids[j];
+        int n = graph_beam_search(g, vs, vs_get(vs, i), 0, ef_construction, ef_construction, v, found_ids, fdists, &out_ndists, candidates, results);
+
+        int nbrs_num = graph_select_neighbours(vs, i, found_ids, fdists, n, g->M, out);
+
+        for (int j = 0; j < nbrs_num; j++) {
+            int c = out[j];
             graph_add_edge(g, i, c);
 
             if (!graph_add_edge(g, c, i)) {
@@ -243,7 +265,7 @@ int graph_build(Graph *g, const VectorStore *vs, int ef_construction) {
                     }
                 }
 
-                if (worst_dist > fdists[j]) {
+                if (worst_dist > l2sq_distance(vec, vs_get(vs, i), vs->dim)) {
                     graph_replace_edge(g, c, worst_slot, i);
                 }
                 
@@ -253,6 +275,7 @@ int graph_build(Graph *g, const VectorStore *vs, int ef_construction) {
 
     free(fdists);
     free(found_ids);
+    free(out);
     visited_free(v);
     heap_free(candidates);
     heap_free(results);
