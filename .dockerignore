@@ -1,0 +1,7 @@
+data/
+build/
+.git/
+__pycache__/
+venv/
+*.png
+*.csv

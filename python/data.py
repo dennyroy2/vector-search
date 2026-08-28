@@ -36,6 +36,11 @@ def load_siftsmall():
 
     return read_fvecs(d/"siftsmall_base.fvecs"), read_fvecs(d/"siftsmall_query.fvecs"), read_ivecs(d/"siftsmall_groundtruth.ivecs")
 
+def load_sift1m():
+    d = DATA_DIR/"sift"
+
+    return read_fvecs(d/"sift_base.fvecs"), read_fvecs(d/"sift_query.fvecs"), read_ivecs(d/"sift_groundtruth.ivecs")
+
 if __name__ == "__main__":
     base, queries, gt = load_siftsmall()
     print(f"base:    {base.shape}  {base.dtype}")

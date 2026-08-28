@@ -1,0 +1,21 @@
+FROM debian:12-slim
+
+# gcc and make to build; valgrind to check; libc6-dbg so valgrind has
+# debug symbols for the C library and doesn't report noise from inside
+# malloc itself.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential valgrind libc6-dbg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only what's needed. Copying the whole repo would drag in data/,
+# .git, and build/ — and stale macOS object files would break the Linux build.
+COPY Makefile ./
+COPY src/ ./src/
+COPY include/ ./include/
+COPY tests/ ./tests/
+
+RUN mkdir -p build
+
+CMD ["/bin/bash"]

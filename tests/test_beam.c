@@ -25,6 +25,9 @@ static void test_ef1_equals_greedy(void) {
     MaxHeap * results = heap_create(2, 1);
     float query[] = {9.0f};
 
+    heap_free(candidates);
+    heap_free(results);
+
     float greedy_dist;
     int greedy_nd, greedy_hops;
     int greedy_id = graph_greedy_search(g, vs, query, 0, v,
@@ -125,6 +128,9 @@ static void test_escapes_local_minimum(void) {
     MaxHeap * results = heap_create(2, 1);
     graph_beam_search(g, vs, query, 0, 1, 1, v, ids, dists, &nd, candidates, results);
     assert(ids[0] == 2);
+
+    heap_free(candidates);
+    heap_free(results);
 
     // Beam ef=3: keeps node 3 in the results heap even though it's worse,
     // so it stays a candidate, gets expanded, and node 4 is found.
@@ -236,10 +242,16 @@ static void test_degenerate(void) {
     MaxHeap * results = heap_create(1, 1);
     assert(graph_beam_search(g, vs, query, 0,  0, 3, v, ids, dists, &nd, candidates, results) == 0);
 
+    heap_free(candidates);
+    heap_free(results);
+
     candidates = heap_create(n, 0);
     results = heap_create(11, 1);
     assert(graph_beam_search(g, vs, query, 0, 10, 0, v, ids, dists, &nd, candidates, results) == 0);
     assert(ids[0] == -999);   // nothing written on rejection
+
+    heap_free(candidates);
+    heap_free(results);
 
     // k larger than n: return everything available, not more.
     candidates = heap_create(n, 0);
@@ -259,8 +271,9 @@ static void test_degenerate(void) {
 static void test_ndists_grows_with_ef(void) {
     int n = 200, M = 8;
     float *data = malloc(n * sizeof(float));
+    if (data) {
     for (int i = 0; i < n; i++) data[i] = (float)((i * 37) % n);
-
+    }
     VectorStore *vs = vs_create(data, n, 1);
     Graph *g = graph_create(n, M);
     graph_fill_random(g, 4);

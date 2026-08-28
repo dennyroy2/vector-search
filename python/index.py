@@ -288,6 +288,130 @@ class BuiltGraphIndex:
     def __exit__(self, *a): self.close()
     def __del__(self): self.close()
 
+lib.hnsw_create.argtypes = [ctypes.c_void_p, ctypes.c_int]
+lib.hnsw_create.restype = ctypes.c_void_p
+
+lib.hnsw_free.argtypes = [ctypes.c_void_p]
+lib.hnsw_free.restype = None
+
+lib.hnsw_build.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+lib.hnsw_build.restype = ctypes.c_int
+
+lib.hnsw_search.argtypes = [
+    ctypes.c_void_p, FLOAT_VEC, ctypes.c_int, ctypes.c_int,
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+    INT_VEC, FLOAT_VEC, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int),
+]
+lib.hnsw_search.restype = ctypes.c_int
+
+lib.hnsw_save.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+lib.hnsw_save.restype = ctypes.c_int
+
+lib.hnsw_load.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
+lib.hnsw_load.restype = ctypes.c_void_p
+
+
+class HNSWIndex:
+    """Hierarchical navigable small world index."""
+
+    def __init__(self, vectors, M=16, ef_construction=100, seed=42,
+                 max_ef=2000):
+        self._vs = self._h = self._v = None
+        self._candidates = self._results = None
+
+        self._vectors = vectors
+        self.n, self.dim = vectors.shape
+        self.M = M
+        self.max_ef = max_ef
+
+        self._vs = lib.vs_create(vectors, self.n, self.dim)
+        self._h = lib.hnsw_create(self._vs, M)
+        self._v = lib.visited_create(self.n)
+        self._candidates = lib.heap_create(self.n, 0)
+        self._results = lib.heap_create(max_ef + 1, 1)
+
+        start = time.perf_counter()
+        if not lib.hnsw_build(self._h, ef_construction, seed):
+            raise MemoryError("hnsw_build failed")
+        self.build_seconds = time.perf_counter() - start
+
+    def search(self, query, ef=10, k=10):
+        if ef > self.max_ef:
+            raise ValueError(f"ef={ef} exceeds max_ef={self.max_ef}")
+        ids = np.empty(k, dtype=np.int32)
+        dists = np.empty(k, dtype=np.float32)
+        nd = ctypes.c_int()
+        descent = ctypes.c_int()
+        count = lib.hnsw_search(
+            self._h, query, k, ef,
+            self._v, self._candidates, self._results,
+            ids, dists, ctypes.byref(nd), ctypes.byref(descent),
+        )
+        self.last_descent_ndists = descent.value
+        return ids[:count], dists[:count], nd.value
+    
+    def save(self, path):
+        """Write the index to disk. Vectors are not saved — only the graph."""
+        # C wants bytes, not a str. Path objects need str() first.
+        ok = lib.hnsw_save(self._h, str(path).encode("utf-8"))
+        if not ok:
+            raise IOError(f"hnsw_save failed writing {path}")
+
+    @classmethod
+    def load(cls, path, vectors, max_ef=2000):
+        """Build an index from a saved file.
+
+        `vectors` must be the same vectors, in the same order, the index
+        was built over — the file stores node IDs, which are indices into
+        this array. C validates n and dim but cannot check the contents.
+        """
+        if vectors.dtype != np.float32:
+            raise TypeError(f"expected float32, got {vectors.dtype}")
+        if not vectors.flags["C_CONTIGUOUS"]:
+            raise ValueError("vectors must be C-contiguous")
+
+        # __new__ makes an instance without running __init__ — which is
+        # what we want, since __init__ builds the index and we're loading
+        # one instead. Every attribute has to be set by hand here.
+        self = cls.__new__(cls)
+        self._vs = self._h = self._v = None
+        self._candidates = self._results = None
+
+        self._vectors = vectors          # keep alive — C borrows the pointer
+        self.n, self.dim = vectors.shape
+        self.max_ef = max_ef
+        self.build_seconds = 0.0         # loaded, not built
+
+        self._vs = lib.vs_create(vectors, self.n, self.dim)
+        if not self._vs:
+            raise MemoryError("vs_create failed")
+
+        self._h = lib.hnsw_load(str(path).encode("utf-8"), self._vs)
+        if not self._h:
+            self.close()
+            raise IOError(f"hnsw_load failed reading {path} "
+                          f"(wrong file, version mismatch, or vector "
+                          f"store shape mismatch)")
+
+        self._v = lib.visited_create(self.n)
+        self._candidates = lib.heap_create(self.n, 0)
+        self._results = lib.heap_create(max_ef + 1, 1)
+        if not (self._v and self._candidates and self._results):
+            self.close()
+            raise MemoryError("scratch allocation failed")
+
+        return self
+
+    def close(self):
+        if self._h: lib.hnsw_free(self._h); self._h = None
+        if self._v: lib.visited_free(self._v); self._v = None
+        if self._candidates: lib.heap_free(self._candidates); self._candidates = None
+        if self._results: lib.heap_free(self._results); self._results = None
+        if self._vs: lib.vs_free(self._vs); self._vs = None
+
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close()
+    def __del__(self): self.close()
 
 def main():
     base, queries, gt = load_siftsmall()

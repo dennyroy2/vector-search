@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
 from data import load_siftsmall
-from index import RandomGraphIndex, BruteForceIndex, BuiltGraphIndex
+from index import RandomGraphIndex, BruteForceIndex, BuiltGraphIndex, HNSWIndex
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
@@ -82,6 +82,18 @@ def bfs_reachable(index, start=0):
                 queue.append(nb)
     return len(visited)
 
+def measure_descent(index, queries, ef=10, k=10):
+    """Average distance computations spent above layer 0."""
+    total_descent = 0
+    total = 0
+    for q in queries:
+        _, _, nd = index.search(q, ef=ef, k=k)
+        total_descent += index.last_descent_ndists
+        total += nd
+    n = len(queries)
+    print(f"  descent: {total_descent/n:.1f} of {total/n:.1f} total "
+          f"({100*total_descent/total:.1f}%)")
+
 
 def main():
     base, queries, gt = load_siftsmall()
@@ -121,8 +133,37 @@ def main():
         })
         print(f"  recall=1.000  qps={1.0/per_query:.0f}  ndists={len(base)}")
 
+    print("\nHNSW Index, M=16, efConstruction=100")
+    with HNSWIndex(base, M=16, ef_construction=200) as idx:
+        print(f"  build took {idx.build_seconds:.1f}s")
+        rows += sweep(idx, queries, gt, efs, label="hnsw-M16")
+
+        # Connectivity: what fraction is even reachable from node 0?
+        '''reachable = bfs_reachable(idx)
+        print(f"  reachable from node 0: {reachable}/{idx.n} "
+              f"({100*reachable/idx.n:.1f}%)")'''
+
+        measure_descent(idx, queries, ef=10)
+        measure_descent(idx, queries, ef=1000)
+
     write_csv(rows, RESULTS_DIR / "sweep_random.csv")
 
+    t0 = time.perf_counter()
+    with HNSWIndex(base, M=16, ef_construction=100) as idx:
+        build_time = time.perf_counter() - t0
+        idx.save("build/sift_index.bin")
+
+    t0 = time.perf_counter()
+    with HNSWIndex.load("build/sift_index.bin", base) as idx2:
+        load_time = time.perf_counter() - t0
+
+    print(f"build: {build_time*1000:.1f} ms")
+    print(f"load:  {load_time*1000:.3f} ms  ({build_time/load_time:.0f}x faster)")
+    print(f"file:  {Path("build/sift_index.bin").stat().st_size / 1e6:.2f} MB")
+
+    for i in range(200):
+        with HNSWIndex(base, M=16, ef_construction=50) as idx:
+            idx.search(queries[0], ef=10, k=10)
 
 if __name__ == "__main__":
     main()
