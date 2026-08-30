@@ -8,6 +8,7 @@
 #include "vectors.h"
 #include "heap.h"
 #include "distance.h"
+#include <stddef.h>
 
 // mL : decay parameter. The paper recommends 1/ln(M), which makes each
 //      layer hold roughly 1/M of the layer below and minimises overlap
@@ -70,4 +71,20 @@ int hnsw_save(HNSW *h, const char *path);
 //
 // Returns NULL on failure.
 HNSW *hnsw_load(const char *path, VectorStore *vs);
+
+// hnsw.h
+// Total bytes allocated by this index, excluding the borrowed vectors.
+size_t hnsw_memory_bytes(const HNSW *h);
+
+int hnsw_max_level(const HNSW *h);
+
+// How many nodes actually belong to this layer.
+int hnsw_layer_members(const HNSW *h, int layer);
+
+// hnsw.h
+int hnsw_get_M(const HNSW *h);
+
+// hnsw.h
+// Degree of a node in a given layer. Returns 0 for invalid layers.
+int hnsw_degree(HNSW *h, int node, int layer);
 #endif

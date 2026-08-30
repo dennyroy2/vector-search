@@ -33,3 +33,20 @@ min (1, 10, 100): 0.27489749947562814, 0.2787170803640038, 0.30616584001109004
 qps (1, 10, 100): 3632.9921567521765, 3568.5716015176067, 3252.26387713844
 
 noise_pct (1, 10, 100): 0.1301231497280594, 0.5407222968906605, 0.42861911453082707
+
+## SIFT1M (1,000,000 × 128), M=16
+
+Hardware: Apple Silicon, plugged in, low power mode OFF
+Build: -O2, auto-vectorisation enabled
+Method: 1,000 queries subsampled from the 10,000 provided
+Brute force baseline: 27.5 ms/query, 36 QPS
+
+| efC | build | ef  | recall@10 | QPS   | vs exact | ndists | scanned |
+|----:|------:|----:|----------:|------:|---------:|-------:|--------:|
+| 100 |  164s |  50 |     0.934 | 8,265 |     230x |  1,069 |  0.107% |
+| 100 |  164s | 100 |     0.974 | 4,933 |     137x |  1,813 |  0.181% |
+| 200 |  326s |  50 |     0.949 | 8,038 |     221x |  1,178 |  0.118% |
+| 200 |  326s | 100 |     0.980 | 4,694 |     129x |  2,004 |  0.200% |
+
+efConstruction=200 chosen: ~19% less search work at matched recall, for
+2x the build time. Build is paid once; query cost is paid per request.

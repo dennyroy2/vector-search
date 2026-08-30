@@ -310,6 +310,20 @@ lib.hnsw_save.restype = ctypes.c_int
 lib.hnsw_load.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
 lib.hnsw_load.restype = ctypes.c_void_p
 
+lib.hnsw_memory_bytes.argtypes = [ctypes.c_void_p]
+lib.hnsw_memory_bytes.restype = ctypes.c_size_t
+
+lib.hnsw_max_level.argtypes = [ctypes.c_void_p]
+lib.hnsw_max_level.restype = ctypes.c_int
+
+lib.hnsw_layer_members.argtypes = [ctypes.c_void_p, ctypes.c_int]
+lib.hnsw_layer_members.restype = ctypes.c_int
+
+lib.hnsw_get_M.argtypes = [ctypes.c_void_p]
+lib.hnsw_get_M.restype = ctypes.c_int
+
+lib.hnsw_degree.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+lib.hnsw_degree.restype = ctypes.c_int
 
 class HNSWIndex:
     """Hierarchical navigable small world index."""
@@ -335,6 +349,17 @@ class HNSWIndex:
             raise MemoryError("hnsw_build failed")
         self.build_seconds = time.perf_counter() - start
 
+    def memory(self):
+        size = lib.hnsw_memory_bytes(self._h)
+        return size
+    @property
+    def max_level(self):
+        return lib.hnsw_max_level(self._h)
+        
+    def layer_members(self, l):
+        return lib.hnsw_layer_members(self._h, l)
+        
+
     def search(self, query, ef=10, k=10):
         if ef > self.max_ef:
             raise ValueError(f"ef={ef} exceeds max_ef={self.max_ef}")
@@ -349,6 +374,9 @@ class HNSWIndex:
         )
         self.last_descent_ndists = descent.value
         return ids[:count], dists[:count], nd.value
+    
+    def degree(self, node, layer=0):
+        return lib.hnsw_degree(self._h, node, layer)
     
     def save(self, path):
         """Write the index to disk. Vectors are not saved — only the graph."""
@@ -392,7 +420,7 @@ class HNSWIndex:
             raise IOError(f"hnsw_load failed reading {path} "
                           f"(wrong file, version mismatch, or vector "
                           f"store shape mismatch)")
-
+        self.M = lib.hnsw_get_M(self._h)
         self._v = lib.visited_create(self.n)
         self._candidates = lib.heap_create(self.n, 0)
         self._results = lib.heap_create(max_ef + 1, 1)

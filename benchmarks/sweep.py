@@ -161,8 +161,9 @@ def main():
     print(f"load:  {load_time*1000:.3f} ms  ({build_time/load_time:.0f}x faster)")
     print(f"file:  {Path("build/sift_index.bin").stat().st_size / 1e6:.2f} MB")
 
-    for i in range(200):
-        with HNSWIndex(base, M=16, ef_construction=50) as idx:
+    for ef_construction in [100, 150, 200]:
+        M = 16
+        with HNSWIndex(base, M, ef_construction) as idx:
             idx.search(queries[0], ef=10, k=10)
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import sys
 import time
 import numpy as np
 from pathlib import Path
+import resource
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
@@ -12,9 +13,46 @@ from index import BruteForceIndex, HNSWIndex
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
+def peak_mb():
+    # macOS reports bytes, Linux reports kilobytes. Annoying but real.
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return r / 1e6 if sys.platform == "darwin" else r / 1e3
+
+def memory_report(idx, base):
+    """Where the memory goes, and how much of it is wasted."""
+    n, M, M0 = idx.n, idx.M, 2 * idx.M
+    total = idx.memory()
+
+    print(f"\nmemory at n={n:,}, M={M}")
+    print(f"  vectors (numpy-owned):  {base.nbytes / 1e6:>7.0f} MB")
+    print(f"  index total (C-owned):  {total / 1e6:>7.0f} MB")
+    print(f"  combined:               {(base.nbytes + total) / 1e6:>7.0f} MB")
+    print(f"  bytes per vector:       {total / n:>7.0f} "
+          f"(vectors alone: {base.nbytes / n:.0f})")
+
+    # Per-layer breakdown, and how much of each layer is actually occupied.
+    print(f"\n  {'layer':>5} {'width':>6} {'allocated':>11} {'members':>9} "
+          f"{'used':>10} {'wasted':>10}")
+    total_wasted = 0
+    for l in range(idx.max_level + 1):
+        width = M0 if l == 0 else M
+        allocated = n * width * 4 + n * 4          # neighbours + degrees
+        members = idx.layer_members(l)             # needs a C accessor
+        used = members * width * 4 + n * 4
+        wasted = allocated - used
+        total_wasted += wasted
+        print(f"  {l:>5} {width:>6} {allocated/1e6:>8.0f} MB "
+              f"{members:>9,} {used/1e6:>7.0f} MB {wasted/1e6:>7.0f} MB")
+
+    print(f"\n  wasted on empty upper-layer slots: {total_wasted/1e6:.0f} MB "
+          f"({100*total_wasted/total:.0f}% of the index)")
+
 
 def sift1m_smoke_test():
+    before = peak_mb()
     base, queries, gt = load_sift1m()
+    after_load = peak_mb()
+    print(f"vectors: {after_load - before:.0f} MB")
     queries = queries[:1000]
     gt = gt[:1000]
 
@@ -34,6 +72,8 @@ def sift1m_smoke_test():
     # HNSW build. Time it — this is the number you don't have yet.
     t0 = time.perf_counter()
     idx = HNSWIndex(base, M=16, ef_construction=100, seed=42)
+    after_build = peak_mb()
+    print(f"index:   {after_build - after_load:.0f} MB")
     print(f"build: {idx.build_seconds:.0f}s")
     idx.save("data/indexes/sift1m_M16_efc200.bin")
     print(f"index file: {Path('data/indexes/sift1m_M16_efc200.bin').stat().st_size/1e6:.0f} MB")
@@ -55,8 +95,16 @@ def sift1m_smoke_test():
 
     idx.close()
 
+def memory_analysis(index_path="data/indexes/sift1m_M16_efc200.bin"):
+    """Load a saved index and report where its memory goes."""
+    base, _, _ = load_sift1m()
+
+    with HNSWIndex.load(index_path, base) as idx:
+        memory_report(idx, base)
+
 def main():
-    sift1m_smoke_test()
+    #sift1m_smoke_test()
+    memory_analysis()
 
 if __name__ == "__main__":
     main()

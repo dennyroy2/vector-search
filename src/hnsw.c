@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stddef.h>
 
 int hnsw_random_level(double mL) {
     double u = (rand() + 1.0)/ (RAND_MAX + 1.0);
@@ -103,6 +104,10 @@ int hnsw_insert(HNSW *h, int node, int ef_construction,
         if (n_cand) cur = found_ids[0];
         if (l == 0) {
             n_sel = graph_select_neighbours(h->vs, node, found_ids, found_dists, n_cand, h->M0, selected);
+            if (node == 5000) {
+                    printf("  node 5000 layer %d: n_cand=%d, n_sel=%d\n", l, n_cand, n_sel);
+                    fflush(stdout);
+                }
         } else {
             n_sel = graph_select_neighbours(h->vs, node, found_ids, found_dists, n_cand, h->M, selected);
         }
@@ -135,7 +140,7 @@ int hnsw_insert(HNSW *h, int node, int ef_construction,
                 }
 
 int hnsw_build(HNSW *h, int ef_construction, int seed) {
-
+    
     srand(seed);
 
     VisitedSet * visited = visited_create(h->n);
@@ -267,4 +272,39 @@ HNSW *hnsw_load(const char *path, VectorStore *vs) {
     }
     fclose(f);
     return h;
+}
+
+size_t hnsw_memory_bytes(const HNSW *h) {
+    size_t size = 0;
+    size += sizeof(HNSW); //struct itself
+    size += (HNSW_MAX_LEVEL+1) * sizeof(Graph *); //layers array
+    size += h->vs->n * sizeof(int); //node_levels
+
+    for (int l = 1; l <= h->max_level; l++) {
+        size += sizeof(Graph) + (h->n * sizeof(int)) + (h->n * h->M * sizeof(int));
+    }
+    size += sizeof(Graph) + (h->n * sizeof(int)) + (h->M0 * h->n * sizeof(int));
+
+    return size;
+}
+
+int hnsw_max_level(const HNSW *h) {
+    return h->max_level;
+}
+
+int hnsw_layer_members(const HNSW *h, int layer) {
+    int members = 0;
+    for (int i = 0; i < h->n; i++) {
+        if (h->node_levels[i] >= layer) members++;
+    }
+    return members;
+}
+
+int hnsw_get_M(const HNSW *h) { return h->M; }
+
+// hnsw.c
+int hnsw_degree(HNSW *h, int node, int layer) {
+    Graph *g = hnsw_layer(h, layer);
+    if (!g || node < 0 || node >= h->n) return 0;
+    return graph_degree(g, node);
 }
