@@ -6,6 +6,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 NUMERIC = ("M", "ef_construction", "ef_search", "k", "recall", "qps",
@@ -47,7 +48,15 @@ def plot_pareto(rows, out_path, log_x=False):
             # 1 - recall on a log axis spreads out the high-recall region,
             # where the differences between configurations actually matter.
             x = [max(1 - v, 1e-4) for v in x]
-        ax.plot(x, y, marker="o", ms=4, label=f"M={M}, efC={efc}")
+        if M == 16 and efc == 100:
+            label = "M=16, efC=100/200 (identical)"
+            # thick and faded so the solid efC=200 line sits visibly on top
+            ax.plot(x, y, marker="o", ms=4, linewidth=5, alpha=0.35, label=label)
+        elif M == 16 and efc == 200:
+            # already covered by the combined label above — draw, don't label
+            ax.plot(x, y, marker="o", ms=4)
+        else:
+            ax.plot(x, y, marker="o", ms=4, label=f"M={M}, efC={efc}")
 
     bf = [r for r in rows if r["label"] == "bruteforce"]
     if bf:
@@ -154,14 +163,73 @@ def matched_recall_table(rows, targets=(0.90, 0.95, 0.99)):
         print(line)
     print("\n* cheapest swept setting already exceeds this recall")
 
+def plot_comparison(mine, faiss_rows, out_path, y="qps"):
+    """Both implementations, same axes. Solid = mine, dashed = FAISS."""
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    # Colour by M so the pairs line up visually.
+    colours = {8: "tab:blue", 16: "tab:red", 32: "tab:green"}
+
+    for rows, style, name in [(mine, "-", "mine"),
+                              (faiss_rows, "--", "FAISS")]:
+        for (M, efc), pts in curves(rows):
+            if efc != 200:          # one efC per M keeps the chart readable
+                continue
+            ax.plot([r["recall"] for r in pts], [r[y] for r in pts],
+                    marker="o", ms=4, linestyle=style, color=colours[M],
+                    label=f"{name}, M={M}")
+
+    ax.set_xlabel("recall@10")
+    ax.set_ylabel("queries per second" if y == "qps"
+                  else "distance computations per query")
+    ax.set_yscale("log")
+    ax.set_xlim(0.5, 1.005)
+    ax.set_title(f"Mine vs FAISS on SIFT-1M "
+                 f"({'throughput' if y == 'qps' else 'work done'}, "
+                 f"single-threaded)")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+
+def comparison_table(mine, faiss_rows, targets=(0.90, 0.95, 0.99)):
+    print(f"{'config':>12} {'recall':>8} {'mine QPS':>10} {'FAISS QPS':>11} "
+          f"{'ratio':>7} {'mine nd':>9} {'FAISS nd':>10} {'nd ratio':>9}")
+    print("-" * 82)
+
+    for M in [8, 16, 32]:
+        m_pts = [r for r in mine
+                 if int(r["M"]) == M and int(r["ef_construction"]) == 200]
+        f_pts = [r for r in faiss_rows
+                 if int(r["M"]) == M and int(r["ef_construction"]) == 200]
+
+        for t in targets:
+            mq, mn, ms = qps_at_recall(m_pts, t)
+            fq, fn, fs = qps_at_recall(f_pts, t)
+            if mq is None or fq is None:
+                print(f"{f'M={M}':>12} {t:>8.2f} {'not reached':>50}")
+                continue
+            print(f"{f'M={M}':>12} {t:>8.2f} {mq:>10.0f} {fq:>11.0f} "
+                  f"{fq/mq:>6.2f}x {mn:>9.0f} {fn:>10.0f} {fn/mn:>8.2f}x")
+
 
 def main():
-    rows = read_csv(RESULTS_DIR / "sweep_sift1m.csv")
-    plot_pareto(rows, RESULTS_DIR / "pareto_sift1m.png")
-    plot_pareto(rows, RESULTS_DIR / "pareto_sift1m_log.png", log_x=True)
-    plot_work(rows, RESULTS_DIR / "work_sift1m.png")
-    plot_memory(rows, RESULTS_DIR / "memory_sift1m.png")
-    matched_recall_table(rows)
+    mine = read_csv(RESULTS_DIR / "sweep_sift1m.csv")
+    faiss_rows = read_csv(RESULTS_DIR / "faiss_sift1m.csv")
+
+    # Existing single-implementation plots.
+    plot_pareto(mine, RESULTS_DIR / "pareto_sift1m.png")
+    plot_pareto(mine, RESULTS_DIR / "pareto_sift1m_log.png", log_x=True)
+    plot_work(mine, RESULTS_DIR / "work_sift1m.png")
+    plot_memory(mine, RESULTS_DIR / "memory_sift1m.png")
+
+    # The comparison.
+    plot_comparison(mine, faiss_rows, RESULTS_DIR / "vs_faiss_qps.png", y="qps")
+    plot_comparison(mine, faiss_rows, RESULTS_DIR / "vs_faiss_work.png", y="ndists")
+
+    matched_recall_table(mine)
+    print()
+    comparison_table(mine, faiss_rows)
 
 
 if __name__ == "__main__":
