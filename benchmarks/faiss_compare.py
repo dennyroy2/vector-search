@@ -17,8 +17,8 @@ print(faiss.omp_get_max_threads())
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 INDEX_DIR = Path(__file__).resolve().parent.parent / "data" / "indexes"
 
-M_VALUES = [16]
-EFC_VALUES = [200]
+M_VALUES = [8, 16, 32]
+EFC_VALUES = [100, 200]
 EFS_VALUES = [10, 20, 40, 80, 160, 320]
 N_QUERIES = 1000
 K = 10
@@ -109,10 +109,18 @@ def main():
     queries, gt = queries[:N_QUERIES], gt[:N_QUERIES]
 
     rows  = bench_faiss(base, queries, gt, threads=1, batched=False)  # baseline
+
+    out = RESULTS_DIR / "faiss_sift1m.csv"
+    with open(out, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    print(f"\nwrote {out}")
+
     rows += bench_faiss(base, queries, gt, threads=1, batched=True)   # + batching
     rows += bench_faiss(base, queries, gt, threads=os.cpu_count(), batched=True)   # + threading
 
-    out = RESULTS_DIR / "faiss_sift1m.csv"
+    out = RESULTS_DIR / "faiss_threading.csv"
     with open(out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
