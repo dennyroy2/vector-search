@@ -53,8 +53,6 @@ static void sift_down(MaxHeap *h, int i) {
         int right = 2*i + 2;
         int best  = i;
 
-        // Find the SMALLEST of {self, left, right}.
-        // The bounds checks matter — a node may have 0, 1, or 2 children.
         if (max) {
             if (left  < h->size && h->items[left].dist  > h->items[best].dist) best = left;
             if (right < h->size && h->items[right].dist > h->items[best].dist) best = right;

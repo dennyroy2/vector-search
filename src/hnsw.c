@@ -165,7 +165,6 @@ int hnsw_build(HNSW *h, int ef_construction, int seed) {
     return 1;
 }
 
-// hnsw.c
 
 int hnsw_search(HNSW *h, const float *query, int k, int ef_search,
                 VisitedSet *visited, MaxHeap *candidates, MaxHeap *results,
@@ -276,9 +275,9 @@ HNSW *hnsw_load(const char *path, VectorStore *vs) {
 
 size_t hnsw_memory_bytes(const HNSW *h) {
     size_t size = 0;
-    size += sizeof(HNSW); //struct itself
-    size += (HNSW_MAX_LEVEL+1) * sizeof(Graph *); //layers array
-    size += h->vs->n * sizeof(int); //node_levels
+    size += sizeof(HNSW);
+    size += (HNSW_MAX_LEVEL+1) * sizeof(Graph *); 
+    size += h->vs->n * sizeof(int);
 
     for (int l = 1; l <= h->max_level; l++) {
         size += sizeof(Graph) + (h->n * sizeof(int)) + (h->n * h->M * sizeof(int));
@@ -302,7 +301,6 @@ int hnsw_layer_members(const HNSW *h, int layer) {
 
 int hnsw_get_M(const HNSW *h) { return h->M; }
 
-// hnsw.c
 int hnsw_degree(HNSW *h, int node, int layer) {
     Graph *g = hnsw_layer(h, layer);
     if (!g || node < 0 || node >= h->n) return 0;

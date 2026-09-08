@@ -4,8 +4,7 @@
 VisitedSet *visited_create(int n) {
     VisitedSet *v = malloc(sizeof(*v));
     if (!v) return NULL;
-    // calloc so every stamp starts at 0, and generation starts at 1 —
-    // so nothing is falsely marked visited on the first search.
+
     v->stamp = calloc(n, sizeof(*v->stamp));
     if (!v->stamp) { free(v); return NULL; }
     v->generation = 0;
@@ -19,7 +18,7 @@ void visited_free(VisitedSet *v) {
     free(v);
 }
 
-// "Clear" the set. O(1) instead of O(n) — this is the whole point.
+
 void visited_reset(VisitedSet *v) {
     v->generation++;
 }
