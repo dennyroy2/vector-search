@@ -4,6 +4,13 @@
 An approximate nearest neighbour index implemented from scratch in C, with a zero-copy Python binding. **95% recall@10 at 205 times the throughput of exact search on SIFT-1M**, scanning 0.13% of all vectors
 
 
+```python
+from index import HNSWIndex
+
+idx = HNSWIndex(vectors, M=16, ef_construction=200)
+ids, distances, n_dists = idx.search(query, ef=50, k=10)
+```
+
 ![Pareto frontier](benchmarks/results/pareto_sift1m.png)
 
 
@@ -49,7 +56,10 @@ The vector-search algorithm is 1.79-2.36 times slower than FAISS's algorithm at 
 At M = 32, my algorithm has an nd of 899 vs 950 for FAISS (0.90 recall), 1278 vs 1270 (0.95 recall), and 2686 vs 2738 (0.99 recall). The work done is roughly equivalent while QPS differs by a factor of ~2. This can be attributed to cost of each individual distance computation rather than the algorithm. FAISS has hand-written SIMD intrinsics, prefetching of the next neighbour's vector boosting QPS. Vector-search relies on Clang's compiler auto vectorization (2.2 times scalar, measured by compiling with -fno-vectorize).
 
 
-At M = 16 and 0.99 recall, my nd is 3344 vs 2438 for FAISS, a 37% difference. This extra computational cost can be minimized by adding a keepPrunedConnections function, which backfills the empty neighbour slots from rejected candidates. I measured mean layer 0 degree as 21 against a cap of 32. The additional function would help ensure each node is close to their M0 cap of 32 neighbours. Both implementations were compared single-threaded, since mine has no parallelism. Measured separately, FAISS's batch API with 10 threads reaches 51,046 QPS at recall 0.977 against its own single-threaded per-query 10,644 — a 4.7× gain, of which only ~2% comes from batching itself. Multi-threaded search is the largest single advantage FAISS holds and the one I did not implement; the sub-linear scaling (4.7× on 10 cores) reflects memory bandwidth contention, since HNSW search is bandwidth-bound over a 656 MB FAISS index.
+At M = 16 and 0.99 recall, my nd is 3344 vs 2438 for FAISS, a 37% difference. This extra computational cost can be minimized by adding a keepPrunedConnections function, which backfills the empty neighbour slots from rejected candidates. I measured mean layer 0 degree as 21 against a cap of 32. The additional function would help ensure each node is close to their M0 cap of 32 neighbours.
+
+
+Both implementations were compared single-threaded, since mine has no parallelism. Measured separately, FAISS's batch API with 10 threads reaches 51,046 QPS at recall 0.977 against its own single-threaded per-query 10,644 — a 4.7× gain, of which only ~2% comes from batching itself. Multi-threaded search is the largest single advantage FAISS holds and the one I did not implement; the sub-linear scaling (4.7× on 10 cores) reflects memory bandwidth contention, since HNSW search is bandwidth-bound over a 656 MB FAISS index.
 
 
 ## How it works
@@ -60,7 +70,7 @@ Given a set of 1,000,000 vectors, we must find the closest one to a given query.
 Each vector is connected to M nearby ones, forming a graph. Every search starts at a specific entry point, and hops to the vector closest to the query. With a connected graph structure, each step checks ~M vectors rather than 1,000,000. At M = 16 and 0.95 recall, only 1348 distances were computed to find the 10 closest vectors to the query, at 95% accuracy; 0.13% of the entire collection
 
 
-A regular greedy search always get stuck in a local minimum. Neighbouring nodes look worse, but the true answer is actually 2 nodes away. This was fixed by tracking ef (efSearch for queries and efConstruction to build the graph) candidate nodes (best unexplored nodes) alongside the best results found so far. This allows nodes that are currently worse to stay alive and explored later. ef is the accuracy/speed dial and can be changed per query without rebuilding.
+A regular greedy search gets stuck in a local minimum. Neighbouring nodes look worse, but the true answer is actually 2 nodes away. This was fixed by tracking ef (efSearch for queries and efConstruction to build the graph) candidate nodes (best unexplored nodes) alongside the best results found so far. This allows nodes that are currently worse to stay alive and explored later. ef is the accuracy/speed dial and can be changed per query without rebuilding.
 
 
 Connecting each node to its M closest nodes fails as data forms clusters, stopping searches prematurely due to all M neighbours belonging to the same cluster. 50.3% of the graph was unreachable from the entry point, and recall capped at 0.665 regardless of ef. The solution is to reject a candidate that sits closer to an already selected neighbour than to the node itself, since the candidate is reachable through the neighbour. A direct edge would be redundant. As a result, edges are now longer, bridging clusters. Result: 99.9% of the graph is reachable, recall has a ceiling of 1.0.
@@ -106,12 +116,12 @@ for t in build/test_*; do valgrind --leak-check=full "$t"; done
 SIFT-1M from the [TEXMEX corpus](http://corpus-texmex.irisa.fr/). Extract into
 `data/`:
 
-`data/`
+```
+data/
+├── siftsmall/ # 10,000 vectors, for development
 
-`├── siftsmall/ # 10,000 vectors, for development`
-
-`└── sift/ # 1,000,000 vectors, for benchmarks`
-
+└── sift/ # 1,000,000 vectors, for benchmarks
+```
 
 ## Reproducing the benchmarks
 
@@ -140,8 +150,8 @@ with auto-vectorisation. 1,000 queries subsampled from the 10,000 provided.
 
 
 ### numpy owns the vectors, C borrows a pointer
-- Since numpy owns the vectors, storing 1M Vectors costs 512MB. 
-- However, if C owned the vectors, copying per call would cost ~100ms to do 0.1ms of work
+- 1M Vectors costs 512MB. If C owned the vectors, copying per call would cost ~100ms to do 0.1ms of work
+- Instead, C receives a pointer to numpy's buffer
 - The cost is that there are 2 crash modes: C freeing borrowed memory and Python garbage collecting an array C still points at. Prevented by the wrapper holding a reference
 
 
@@ -153,7 +163,7 @@ with auto-vectorisation. 1,000 queries subsampled from the 10,000 provided.
 - Cost: fixed dimension, fixed M, manual index arithmetic
 
 ### Max-heap for finding the k smallest
-- Max-heap stores the worst result in heap.peek(), allowing fo O(1) lookup time
+- Max-heap stores the worst result in heap.peek(), allowing for O(1) lookup time
 - A min-heap surfaces the best keeper, which is never the question
 - Beam search uses both: min-heap of candidates, max-heap of results
 
@@ -188,8 +198,3 @@ with auto-vectorisation. 1,000 queries subsampled from the 10,000 provided.
 - **Distance kernel relies on compiler auto-vectorisation**, not
   hand-written SIMD intrinsics. Measured at 2.2x over scalar; the gap to
   FAISS is roughly the same factor.
-
-- **Serialisation format is not portable across architectures.** The index
-  file is raw binary, assuming the reader matches the writer's endianness
-  and `sizeof(int)`. True on every platform this runs on; portability would
-  require byte-swapping every value on read and write.
