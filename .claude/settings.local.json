@@ -22,7 +22,14 @@
       "Bash(docker stop *)",
       "Bash(docker rm *)",
       "Bash(docker history *)",
-      "Bash(docker pull *)"
+      "Bash(docker pull *)",
+      "Bash(aws --version)",
+      "Bash(aws sts *)",
+      "Bash(docker stats *)",
+      "Bash(pip show *)",
+      "Bash(docker image *)",
+      "Bash(ssh *)",
+      "Bash(curl *)"
     ]
   }
 }
