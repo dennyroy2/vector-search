@@ -13,9 +13,11 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
@@ -128,6 +130,21 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok", "docs": len(app.state.docs)}
+
+
+# Serves frontend/index.html at the bare root URL. Same origin as /search
+# (same host, same http://, same port) is the whole point — a page and its
+# API living on different origins (e.g. this on plain HTTP, a page hosted
+# on GitHub Pages' HTTPS) triggers the browser's mixed-content block, which
+# fails silently and is miserable to debug. Serving both from this one
+# container sidesteps that entirely, at the cost of a bare IP:port instead
+# of a prettier domain name.
+_FRONTEND_INDEX = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+
+
+@app.get("/")
+def frontend():
+    return FileResponse(_FRONTEND_INDEX)
 
 
 @app.post("/search", response_model=SearchResponse)

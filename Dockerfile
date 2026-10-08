@@ -46,6 +46,7 @@ RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceT
 COPY --from=builder /app/build/libvindex.so ./build/libvindex.so
 
 COPY python/ ./python/
+COPY frontend/ ./frontend/
 
 # The embeddings under data/embeddings/ are deliberately NOT copied in.
 # They're generated data, not code — this project's own rule is "don't
