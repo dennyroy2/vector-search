@@ -79,7 +79,13 @@
   // Public demo key — deliberately not the same key used for private/programmatic
   // access. Anyone can read this out of the page source; that's expected, not a
   // leak. It's rate-limited server-side specifically so that being public is safe.
-  const API_URL = "http://18.119.185.198:8000/search";
+  //
+  // A relative path, not a hardcoded host — this page is always served from
+  // the same origin as the API now (Caddy fronts both), so "/search" always
+  // means "this same host, same protocol," whether that's the IP, the
+  // duckdns domain, or a real domain later. No mixed-content risk either,
+  // since the browser never has to guess which scheme to use.
+  const API_URL = "/search";
   const API_KEY = "roGyQt07qVXg7iPKrDAN5u5TPuE8iM12gNVsnz32iRo";
 
   const form = document.getElementById("search-form");
