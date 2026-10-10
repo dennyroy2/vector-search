@@ -3,6 +3,8 @@
 
 An approximate nearest neighbour index implemented from scratch in C, with a zero-copy Python binding. **95% recall@10 at 205 times the throughput of exact search on SIFT-1M**, scanning 0.13% of all vectors
 
+Deployed as a live, authenticated, rate-limited search API over 38,985 real documents: **https://vector-search.duckdns.org/** — see [Deployment](#deployment) below.
+
 
 ```python
 from index import HNSWIndex
@@ -84,8 +86,11 @@ A layered structure solves the issue of starting every search from the same entr
 src/         C implementation — vectors, distance, heap, graph, hnsw
 include/     headers
 tests/       C test suite, one binary per module
-python/      ctypes wrapper and data loaders
-benchmarks/  sweep harnesses, plotting, results
+python/      ctypes wrapper, data loaders, and the FastAPI service (app.py)
+benchmarks/  sweep harnesses, plotting, results, load_test.py
+frontend/    single-page search UI, served by the API itself
+Dockerfile   multi-stage build: C compiled in one stage, only libvindex.so
+             crosses into the Python runtime stage that actually ships
 ```
 
 
@@ -198,3 +203,118 @@ with auto-vectorisation. 1,000 queries subsampled from the 10,000 provided.
 - **Distance kernel relies on compiler auto-vectorisation**, not
   hand-written SIMD intrinsics. Measured at 2.2x over scalar; the gap to
   FAISS is roughly the same factor.
+
+## Deployment
+
+A fast index sitting in a benchmark script isn't a service. This wraps it
+in a real API: authenticated, rate-limited, instrumented, load-tested,
+and deployed — live at **https://vector-search.duckdns.org/**.
+
+### The API
+
+FastAPI service (`python/app.py`) over 38,985 arXiv abstracts (title +
+summary, embedded with `all-MiniLM-L6-v2`). The corpus wasn't used as-is:
+counting the raw CSV found 24.7% of rows (12,789 of 51,774) were exact
+duplicates — identical text embeds to a bit-identical vector, so leaving
+them in doesn't just waste compute, it silently produces tied, misleading
+search results. Deduplicated before embedding. Recall@10 against brute
+force on this corpus: **99.70%** (194/200 test queries perfect) — the same
+algorithm, a different embedding model and dimensionality (384 vs. 128)
+than the SIFT benchmark above, holding up without retuning.
+
+### Auth and rate limiting
+
+API keys, not session login — this is a machine-to-machine search API,
+not a consumer app with accounts, and the auth model should match what
+the service actually is.
+
+Rate limiting is a token bucket, implemented from scratch
+(`python/rate_limit.py`), one bucket per key. It's genuinely
+concurrency-safe, not just logically correct in isolation: FastAPI
+dispatches synchronous route handlers into a thread pool, so two requests
+on the same key can race on the same bucket's token count on different
+threads — a real hazard, not a hypothetical one, which is why the
+read-modify-write is wrapped in a lock.
+
+Verified under actual concurrent load, not just a local unit test: at
+exactly double one key's capacity (200 concurrent requests spread across
+10 distinct keys), the result was **exactly 100 succeeded, exactly 100
+rejected** — the token-bucket math holding precisely even under real
+network jitter and genuine concurrency, not just a clean sequential test.
+
+### Instrumentation found a real bug
+
+Added p50/p99 latency tracking (`python/latency.py`, a bounded in-memory
+window, percentiles via numpy) exposed at `/stats`. It immediately paid
+for itself: p99 measured **2.78 seconds**, traced to the embedding model
+lazily loading on the first real request instead of at startup. Warming
+it up during server startup — the same treatment already given to the
+index — dropped p99 to **~28ms**, a 99% reduction in tail latency. The
+instrumentation did its job: it surfaced a real defect instead of a
+plausible-looking number.
+
+**Committed latency budget: p99 < 30ms**, for the realistic use case
+(a single request against the live deployment, not sustained concurrent
+load) — measured live p99 was 22.6ms; 30ms leaves honest headroom for
+run-to-run variance rather than committing to the exact number measured
+once.
+
+### Load testing — where it actually breaks, and why
+
+(`benchmarks/load_test.py`, async, hitting the live deployment directly.)
+
+| Concurrent requests | p50 latency |
+|---|---|
+| 1 | ~7 ms |
+| 10 | ~322 ms |
+| 100 | ~2,686 ms |
+
+Nothing crashes under load — no 500s, no connection failures. Latency
+degrades instead, roughly in proportion to concurrency: this is a single
+process on a 2-vCPU instance, and the embedding call is CPU-bound Python
+work contending for the GIL and for genuinely limited cores. Honest
+sustained ceiling for this deployment: **~34 requests/second** before
+per-request latency becomes unacceptable. The rate limiter held correctly
+throughout — every rejection was a clean `429`, by design, not a failure.
+
+One load-testing lesson learned the hard way: the first run of this test
+produced confusing numbers, because it reused the same keys across
+successive stages with no delay between them — the rate limiter's state
+lives on the server and persists across an entire test run, so later
+stages were silently hitting buckets already drained by earlier ones, not
+testing a fresh baseline. Fixed by waiting for full refill between stages.
+
+### Infrastructure and cost
+
+Multi-stage Docker build — the C library compiles in a stage with `gcc`
+and the source tree; only the resulting `libvindex.so` crosses into the
+Python runtime stage that actually ships, which never has a compiler in
+it. CPU-only PyTorch installed explicitly from PyTorch's CPU wheel index,
+since pip's default Linux wheel otherwise drags in several GB of unused
+CUDA libraries on a CPU-only instance.
+
+Instance sizing was measured, not guessed: the free-tier instance
+(`t3.micro`, 1GB RAM) was ruled out because the container alone measures
+~1GB under load — already over budget before the OS gets anything. Tried
+the standard fix for that (swap PyTorch for ONNX Runtime) and it measured
+**worse** (1.1GB vs. 621MB), because `sentence-transformers` still
+imports torch internally regardless of inference backend — a real,
+negative result, found empirically rather than assumed away. Sized the
+instance (`t3.small`) to the number actually measured instead.
+
+Deployed behind Caddy for automatic HTTPS (Let's Encrypt), on a free
+DuckDNS hostname pointed at a reserved (Elastic) IP — the address needed
+to survive stopping the instance between uses. Cost engineered
+deliberately: the instance is stopped, not left running, when not
+actively being demoed, since this is bursty demo traffic rather than
+sustained production load. Realistic cost: **~$4-6/month**, against
+~$15-17/month for the same instance left running continuously.
+
+### The full path a request takes
+
+Browser → Caddy (TLS termination, `https://vector-search.duckdns.org`) →
+FastAPI (`API key check → rate limit check → embed query → call the C
+index → map ids back to documents`) → JSON response. Every one of those
+steps was built, measured, and in at least two cases (the cold-start
+latency bug, the ONNX memory regression) debugged with real data rather
+than assumption.
